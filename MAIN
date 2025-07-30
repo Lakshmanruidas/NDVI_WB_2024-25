@@ -1,0 +1,93 @@
+// -------------------- 1. Load West Bengal Boundary --------------------
+var states = ee.FeatureCollection("FAO/GAUL/2015/level1");
+
+var westBengal = states.filter(ee.Filter.and(
+  ee.Filter.eq('ADM0_NAME', 'India'),
+  ee.Filter.eq('ADM1_NAME', 'West Bengal')
+));
+
+Map.centerObject(westBengal, 7);
+Map.setOptions('SATELLITE');
+Map.addLayer(westBengal, {color: 'blue'}, 'West Bengal Boundary');
+
+// -------------------- 2. Load Sentinel-2 & Compute NDVI --------------------
+var s2 = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
+  .filterDate('2024-01-01', '2025-12-31')
+  .filterBounds(westBengal)
+  .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20))
+  .map(function(image){
+    var ndvi = image.normalizedDifference(['B8', 'B4']).rename('NDVI');
+    return image.addBands(ndvi);
+  });
+
+var ndvi = s2.select('NDVI').median().clip(westBengal);
+
+// -------------------- 3. NDVI Visualization --------------------
+var ndviVis = {
+  min: 0.0,
+  max: 0.8,
+  palette: ['white', 'yellow', 'green']
+};
+Map.addLayer(ndvi, ndviVis, 'NDVI (2024–2025)');
+
+// -------------------- 4. Highlight High NDVI --------------------
+var highNDVI = ndvi.gt(0.6).selfMask();  // NDVI > 0.6
+Map.addLayer(highNDVI, {palette: ['red']}, 'High NDVI (>0.6)');
+
+// -------------------- 5. Create UI Layout --------------------
+
+// Title Panel
+var title = ui.Label('🛰️ NDVI Analysis of West Bengal (2024–2025)', {
+  fontWeight: 'bold',
+  fontSize: '18px',
+  margin: '10px 5px'
+});
+
+// Legend Panel
+var legend = ui.Panel({style: {padding: '8px', width: '150px'}});
+legend.add(ui.Label({value: 'NDVI Legend', style: {fontWeight: 'bold'}}));
+
+// Colorbar for NDVI
+var colorBar = ui.Thumbnail({
+  image: ee.Image.pixelLonLat().select(0),
+  params: {
+    bbox: [0, 0, 1, 0.1],
+    dimensions: '120x10',
+    format: 'png',
+    min: 0,
+    max: 1,
+    palette: ['white', 'yellow', 'green']
+  },
+  style: {stretch: 'horizontal', margin: '4px 0'}
+});
+legend.add(colorBar);
+
+// Legend Labels
+var legendLabels = ui.Panel({
+  widgets: [
+    ui.Label('Low (0.0)'),
+    ui.Label('High (0.8)', {textAlign: 'right', stretch: 'horizontal'})
+  ],
+  layout: ui.Panel.Layout.flow('horizontal')
+});
+legend.add(legendLabels);
+
+// High NDVI explanation
+legend.add(ui.Label({
+  value: '🔴 Red: NDVI > 0.6\nHigh vegetation',
+  style: {color: 'red', fontSize: '12px', margin: '4px 0 0 0'}
+}));
+
+// Combine title + legend
+var controlPanel = ui.Panel({
+  widgets: [title, legend],
+  layout: ui.Panel.Layout.flow('vertical'),
+  style: {
+    position: 'top-right',
+    width: '250px',
+    padding: '8px',
+    backgroundColor: 'rgba(255, 255, 255, 0.8)'
+  }
+});
+
+Map.add(controlPanel);
